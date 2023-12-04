@@ -2,7 +2,7 @@
 # Script author: Subramanian Venkatesan
 # The latest TCGA-GBM dataset download and analysis for the paper was on 03-06-2023
 
-# R script
+setwd('...') #specify working directory 
 
 ####################################################################
 ####Download TCGA-GBM "Copy Number Segment"  data using the TCGABiolinks package
@@ -34,6 +34,7 @@ tcga_GBM.cnv <- GDCprepare(tcga_GBM.cnv.query, #prepare the data
 saveRDS(object = tcga_GBM.cnv, file = "./TCGA_biolinks_datasets/TCGA-GBM/tcga_GBM.cnv.RDS",compress = FALSE) 
 tcga_GBM.cnv = readRDS(file = "./TCGA_biolinks_datasets/TCGA-GBM/tcga_GBM.cnv.RDS")
 '
+
 ###################################################################################
 ####Download TCGA-GBM clinical data using TCGABiolinks method: Clinical indexed data
 ###################################################################################
@@ -48,6 +49,7 @@ colnames(tcga_GBM.clin.indexed)[2] <- "sample" #rename ID column
 saveRDS(object = tcga_GBM.clin.indexed, file = "./TCGA_biolinks_datasets/TCGA-GBM/tcga_GBM.clin.indexed.RDS",compress = FALSE) 
 tcga_GBM.clin.indexed = readRDS(file = "./TCGA_biolinks_datasets/TCGA-GBM/tcga_GBM.clin.indexed.RDS")
 '
+
 ###################################################################################
 ####Download the TCGA-GBM mutation data using the TCGABiolinks package
 ###################################################################################
@@ -92,7 +94,7 @@ library(dplyr)
 empty_columns <- sapply(tcga_GBM.clin.indexed, function(x) all(is.na(x) | x == ""))
 tcga_GBM.clin.indexed2 <- tcga_GBM.clin.indexed[, !empty_columns] #remove all empty columns in tcga_GBM.clin.indexed
 
-#label samples according to group status: whether patient lived shorter than 3 year or longer ("Longer_1095") than 3 years ("Shorter_1095")
+#label samples according to group status: whether patient lived shorter than 3 years ("Shorter_1095") or longer than 3 years ("Longer_1095")
 #Be aware this is not the final survivor status, it is an intermediate step
 tcga_GBM.clin.indexed3 <- tcga_GBM.clin.indexed2 %>%
   mutate(survivor_status = case_when(
@@ -118,7 +120,6 @@ sample.remove2 <- tcga_GBM.clin.indexed3$sample[tcga_GBM.clin.indexed3$vital_sta
 `%!in%` <- Negate(`%in%`) #create a "not in" function
 #create a dataframe with GBM patients who could be allocated into Long or Short term survivorship (Be aware this is an intermediate step: this is not the final survivor status yet)
 tcga_GBM.clin.indexed4 <- tcga_GBM.clin.indexed3[tcga_GBM.clin.indexed3$sample %!in% sample.remove1 & tcga_GBM.clin.indexed3$sample %!in% sample.remove2,]
-
 tcga_GBM.clin.indexed4 <- tcga_GBM.clin.indexed4[,c(1,2,42:43,3:41)] #reorder columns so that "survivor_status" and "IDH_status" are in the front of the dataframe
 
 #Add the 3 final categories: "GBM-TS" (= typical survivor), "GBM-LTS" (=long term survivor),"IDH-MUT grade 4 astrocytoma"
@@ -133,7 +134,6 @@ table(tcga_GBM.clin.indexed4$final_status)# sanity check: checking whether you h
 ###################################################################################
 #### Copy number data QC: filter out samples based on previously determined list
 ###################################################################################
-
 #downloaded the processed and QC'ed SNP6 data from the "Van Loo lab". This list contains samples that passed QC.
 #<https://github.com/VanLoo-lab/ascat/blob/master/ReleasedData/TCGA_SNP6_hg19/summary.ascatv3TCGA.penalty70.hg19.tsv> 
 
@@ -156,7 +156,6 @@ length(levels(tcga_GBM.cnv_filtered2$Sample)) # sanity check
 ###################################################################################
 ####Prepare the downloaded copy number segment  data for input into "CINSignatureQuantification" package
 ###################################################################################
-
 #The TCGA CNV pipeline transforms a CNV value into a segment mean, where Segment mean = log2(CNV/2). A copy number can be derived from the segment means by calculating 2 * (2segment mean).
 tcga_GBM.cnv_filtered2$SegVal <- (2^tcga_GBM.cnv_filtered2$Segment_Mean)*2
 tcga_GBM.cnv_filtered3 <- cbind(tcga_GBM.cnv_filtered2[,c(2:4,8,7)])
@@ -172,10 +171,10 @@ saveRDS(object = tcga_GBM.cnv_filtered3, file = "./TCGA_biolinks_datasets/TCGA-G
 tcga_GBM.cnv_filtered3 = readRDS(file = "./TCGA_biolinks_datasets/TCGA-GBM/tcga_GBM.cnv_filtered3.RDS")
 '
 
+
 ###################################################################################
 ####CIN Signature Quantification
 ###################################################################################
-
 #<https://github.com/markowetzlab/CINSignatureQuantification> This R package allows you to quantify the activity of the 17 signatures presented. It also allows you to quantify signature activities from other publications.
 library(CINSignatureQuantification)
 
@@ -231,9 +230,10 @@ mySigs.scaled.RESCALED.long$final_status <- ordered(mySigs.scaled.RESCALED.long$
 levels(mySigs.scaled.RESCALED.long$final_status)#sanity check --> "GBM-TS","GBM-LTS", "IDH-MUT grade 4 astrocytoma"
 
 ###################################################################################
-####Assumption testing for the Kruskal-Wallis test: nicely explained in https://www.datanovia.com/en/lessons/anova-in-r/
+####Assumption testing for the Kruskal-Wallis test: explained in https://www.datanovia.com/en/lessons/anova-in-r/
 ###################################################################################
 library(rstatix)
+library(ggpubr)
 
 #Check assumption 1: Identify outliers in each cell design. 
 mySigs.scaled.RESCALED.long %>%
@@ -257,21 +257,11 @@ mySigs.scaled.RESCALED.long %>%
 ggqqplot(mySigs.scaled.RESCALED.long, "Activity", facet.by = "Signature")
 
 ###################################################################################
-#### Statistics and plotting all 17 CIN signatures according to the survivor status
+#### Statistics and plotting only the significantly different CIN signatures according to the survivor status (CIN sig 1,5,10 and 11)
 ###################################################################################
-library(ggpubr)
+library(ggplot2)
 
 #Choose the Kruskal-Wallis test, which is the non-parametric alternative to one-way ANOVA test, since normality of the data may not be assumed
-res.kruskal <- mySigs.scaled.RESCALED.long %>% 
-  group_by(Signature) %>%
-  kruskal_test(Activity ~ final_status) %>%
-  adjust_pvalue(method = "bonferroni") %>%
-  add_significance("p.adj") %>% 
-  p_round(digits = 3) %>% 
-  p_format(., leading.zero = TRUE)
-
-#A  Kruskal-Wallis test followed up by Dunn’s test 
-#Useful reference about post-hoc tests: https://www.graphpad.com/support/faqid/1081/ 
 pwc <- mySigs.scaled.RESCALED.long %>% 
   group_by(Signature) %>%
   dunn_test(Activity ~ final_status, p.adjust.method = "bonferroni") %>%
@@ -279,11 +269,11 @@ pwc <- mySigs.scaled.RESCALED.long %>%
   p_round(digits = 4) %>% 
   p_format(., leading.zero = TRUE)
 
-pwc$Signature <- as.numeric(pwc$Signature) #change into the class "numeric", as this enables proper sorting
+pwc$Signature <- as.numeric(pwc$Signature)
 class(pwc$Signature) #sanity check
 
 pwc <- pwc[order(pwc$Signature),]
-pwc$Signature <- as.factor(pwc$Signature) #change into the class "factor", as this enables proper plotting
+pwc$Signature <- as.factor(pwc$Signature)
 class(pwc$Signature) #sanity check
 
 pwc2 <- pwc %>% 
@@ -293,19 +283,28 @@ pwc3 <- pwc2 %>% # this step is needed for proper positioning of the p-values in
   mutate(xmin = sort(xmin)) %>%
   mutate(xmax = sort(xmax))
 
+#Subset the significant signatures (i.e. CINsignature 1, 5, 10 and 11) and non-significant signature
+pwc.subset.sign <- subset(pwc3, Signature == 1 | Signature == 5 | Signature == 10 | Signature == 11) # Use the statistics from this table!!!
+pwc.plot <- cbind(pwc.subset.sign[,1:10],pwc3[1:12,11:15])
+
+#workaround to ensure proper plotting with correct positions of p-values 
+mySigs.scaled.RESCALED.long.subset.sign <- subset(mySigs.scaled.RESCALED.long, Signature == 1 | Signature == 5 | Signature == 10 | Signature == 11)
+
 library(RColorBrewer)
-brewer.pal(n = 8, name = "Greys")
-p <- ggboxplot(mySigs.scaled.RESCALED.long, x="Signature", y="Activity", 
+brewer.pal(n = 9, name = "Set1")
+
+#Plot the significant signatures: i.e. CINsignature 1, 5, 10 and 11
+p <- ggboxplot(mySigs.scaled.RESCALED.long.subset.sign, x="Signature", y="Activity", 
                color = "final_status",
                add = "jitter",
-               palette =c("#D9D9D9","#969696", "#252525"),
-               ylim = c(0, 1.4),
-               size = 0.5,
-               add.params = list(size = 2, jitter = 0.3),
+               palette =c("#999999","#4DAF4A", "#377EB8"),
+               ylim = c(0, 1.5),
+               size = 0.3,
+               add.params = list(size = 0.5, jitter = 0.3),
                xlab = "CIN signature",
                ylab = "Rescaled activity") +
-  scale_y_continuous(breaks=seq(0,1.8,0.2)) +
-  stat_pvalue_manual(pwc3, label = "FDR = {p.adj}", size = 10, tip.length = 0, hide.ns = TRUE) +
+  scale_y_continuous(breaks = seq(0, 1.0, 0.2)) +
+  stat_pvalue_manual(pwc.plot, label = "P = {p.adj}", size = 10, tip.length = 0, hide.ns = TRUE) +
   font("xlab", size = 40, face = "bold") +
   font("ylab", size = 40, face = "bold") +
   font("xy.text", size = 35) +
@@ -314,14 +313,70 @@ p <- ggboxplot(mySigs.scaled.RESCALED.long, x="Signature", y="Activity",
   theme(axis.ticks = element_line(linewidth = 0.5),
         axis.line = element_line(linewidth = 0.5)) 
 
-ggpar(p, ylim = c(0, 1.5),
-      palette =c("#D9D9D9","#969696", "#252525"))
-
-#Use ggsave if you want to save a separate image
-ggsave("All_CINsignatures_RESCALED.pdf", 
-       width = 18, 
+#Save the plot of significant signatures 
+ggsave("CINsigs_RESCALED_survivorstatus_sign_Signatures.pdf", 
+       width = 10, 
        height = 8,
-       path = "...") #copy and past the path in which you want to save the figure as a PDF file
-       
-       
-       
+       path = "...") #specify where to save
+
+###################################################################################
+#### Statistics and plotting the NON-SIGNIFICANT CIN signatures according to the survivor status
+###################################################################################
+
+#Choose the Kruskal-Wallis test, which is the non-parametric alternative to one-way ANOVA test, since normality of the data may not be assumed
+pwc <- mySigs.scaled.RESCALED.long %>% 
+  group_by(Signature) %>%
+  dunn_test(Activity ~ final_status, p.adjust.method = "bonferroni") %>%
+  add_significance("p.adj") %>% 
+  p_round(digits = 4) %>% 
+  p_format(., leading.zero = TRUE)
+
+pwc$Signature <- as.numeric(pwc$Signature)
+class(pwc$Signature) #sanity check
+
+pwc <- pwc[order(pwc$Signature),]
+pwc$Signature <- as.factor(pwc$Signature)
+class(pwc$Signature) #sanity check
+
+pwc2 <- pwc %>% 
+  add_xy_position(x = "Signature") #add the position of the significance bars
+
+pwc3 <- pwc2 %>% # this step is needed for proper positioning of the p-values in the boxplot
+  mutate(xmin = sort(xmin)) %>%
+  mutate(xmax = sort(xmax))
+
+#Subset the NON-SIGNIFICANT CIN signatures
+pwc.subset.nonsign <- subset(pwc3, Signature != 1 & Signature != 5 & Signature != 10 & Signature != 11) # Use the statistics from this table!!!
+pwc.plot <- cbind(pwc.subset.nonsign[,1:10],pwc3[1:39,11:15])
+
+#workaround to ensure proper plotting with correct positions of p-values 
+mySigs.scaled.RESCALED.long.subset.nonsign <- subset(mySigs.scaled.RESCALED.long, Signature != 1 & Signature != 5 & Signature != 10 & Signature != 11)
+
+library(RColorBrewer)
+brewer.pal(n = 9, name = "Set1")
+
+#Plot the NON-SIGNIFICANT signatures
+p <- ggboxplot(mySigs.scaled.RESCALED.long.subset.nonsign, x="Signature", y="Activity", 
+               color = "final_status",
+               add = "jitter",
+               palette =c("#999999","#4DAF4A", "#377EB8"),
+               ylim = c(0, 1.5),
+               size = 0.3,
+               add.params = list(size = 0.5, jitter = 0.3),
+               xlab = "CIN signature",
+               ylab = "Rescaled activity") +
+  scale_y_continuous(breaks = seq(0, 1.0, 0.2)) +
+  stat_pvalue_manual(pwc.plot, label = "P = {p.adj}", size = 10, tip.length = 0, hide.ns = TRUE) +
+  font("xlab", size = 40, face = "bold") +
+  font("ylab", size = 40, face = "bold") +
+  font("xy.text", size = 35) +
+  font("legend.title", size = 0) +
+  font("legend.text", size = 35) +
+  theme(axis.ticks = element_line(linewidth = 0.5),
+        axis.line = element_line(linewidth = 0.5)) 
+
+#Save the plot of significant signatures 
+ggsave("CINsigs_RESCALED_survivorstatus_NONsign_Signatures.pdf", 
+       width = 15, 
+       height = 8,
+       path = "...") #specify where to save
